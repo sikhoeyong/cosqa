@@ -1,4 +1,8 @@
-CRITERIA = [
+import os, json as _json
+
+_CUSTOM = os.path.join(os.path.dirname(__file__), "rubric_custom.json")
+
+_DEFAULT = [
     {
         "id": "1a",
         "section": "Call Handling",
@@ -121,11 +125,24 @@ CRITERIA = [
     },
 ]
 
+
+def _load() -> list:
+    if os.path.exists(_CUSTOM):
+        with open(_CUSTOM) as f:
+            return _json.load(f)
+    return _DEFAULT
+
+
+def save(criteria: list) -> None:
+    with open(_CUSTOM, "w") as f:
+        _json.dump(criteria, f, indent=2)
+
+
+CRITERIA = _load()
 CRITERIA_BY_ID = {c["id"]: c for c in CRITERIA}
 
 
 def compute_total_score(scores: dict[str, int]) -> float:
-    """Compute total QA score as a percentage (0–100). Formula: (score-1)/2 * weight."""
     total = 0.0
     for criterion in CRITERIA:
         cid = criterion["id"]

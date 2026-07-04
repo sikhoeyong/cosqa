@@ -3,8 +3,9 @@ import { Toaster, toast } from "sonner";
 import AgentPicker from "./components/AgentPicker";
 import CallList from "./components/CallList";
 import QAReview from "./components/QAReview";
+import RubricEditor from "./components/RubricEditor";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { fetchCalls, fetchRubric } from "./api";
+import { fetchCalls, fetchRubric, fetchReviews } from "./api";
 
 export default function App() {
   const [rubric, setRubric] = useState([]);
@@ -15,6 +16,9 @@ export default function App() {
   const [callsError, setCallsError] = useState(null);
   const [selectedCall, setSelectedCall] = useState(null);
   const [selectedAgent, setSelectedAgent] = useState(null);
+  const [reviewsMap, setReviewsMap] = useState({});
+  const [searchParams, setSearchParams] = useState(null);
+  const [view, setView] = useState("qa");
 
   useEffect(() => {
     fetchRubric().then(setRubric).catch(console.error);
@@ -28,10 +32,15 @@ export default function App() {
     setLastCallDate(null);
     setSelectedCall(null);
     setSelectedAgent(agent);
+    setSearchParams({ agentId, startDate, endDate });
     try {
-      const { calls: data, last_call_date } = await fetchCalls(agentId, startDate, endDate);
+      const [{ calls: data, last_call_date }, reviews] = await Promise.all([
+        fetchCalls(agentId, startDate, endDate),
+        fetchReviews(agentId, startDate, endDate).catch(() => []),
+      ]);
       setCalls(data);
       setLastCallDate(last_call_date);
+      setReviewsMap(Object.fromEntries(reviews.map(r => [r.call_id, r])));
     } catch (e) {
       setCallsError(e.message);
     } finally {
@@ -39,18 +48,44 @@ export default function App() {
     }
   }
 
-  function handleSubmitted(total) {
+  async function handleSubmitted(total, callId) {
     setSelectedCall(null);
-    toast.success(`Review saved — QA score: ${total.toFixed(1)}%`);
+    if (total !== null) {
+      toast.success(`Review saved — QA score: ${total.toFixed(1)}%`);
+    } else {
+      toast.info("Review deleted.");
+    }
+    if (searchParams) {
+      const { agentId, startDate, endDate } = searchParams;
+      const reviews = await fetchReviews(agentId, startDate, endDate).catch(() => []);
+      setReviewsMap(Object.fromEntries(reviews.map(r => [r.call_id, r])));
+    }
+  }
+
+  if (view === "rubric") {
+    return (
+      <RubricEditor
+        onBack={() => setView("qa")}
+        onSaved={(updated) => { setRubric(updated); setView("qa"); }}
+      />
+    );
   }
 
   return (
     <div className="min-h-screen bg-background text-left">
       <header className="border-b bg-primary text-primary-foreground px-6 py-4">
-        <div className="flex items-center gap-3">
-          <span className="text-base font-semibold tracking-wide">Tarro</span>
-          <span className="text-xs opacity-50">|</span>
-          <span className="text-sm opacity-80">COS QA</span>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="text-base font-semibold tracking-wide">Tarro</span>
+            <span className="text-xs opacity-50">|</span>
+            <span className="text-sm opacity-80">COS QA</span>
+          </div>
+          <button
+            onClick={() => setView("rubric")}
+            className="text-xs opacity-60 hover:opacity-100 transition-opacity"
+          >
+            Edit rubric
+          </button>
         </div>
       </header>
 
@@ -83,6 +118,7 @@ export default function App() {
                 agentName={selectedAgent?.full_name}
                 onSelect={setSelectedCall}
                 selectedId={selectedCall?.call_id}
+                reviewsMap={reviewsMap}
               />
             </CardContent>
           </Card>
@@ -94,6 +130,7 @@ export default function App() {
           call={selectedCall}
           agent={selectedAgent}
           rubric={rubric}
+          existingReview={reviewsMap[selectedCall.call_id] ?? null}
           onClose={() => setSelectedCall(null)}
           onSubmitted={handleSubmitted}
         />

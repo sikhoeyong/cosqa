@@ -15,6 +15,26 @@ export async function fetchCalls(agentId, startDate, endDate) {
   return r.json();
 }
 
+export async function deleteReview(callId, agentId) {
+  const params = new URLSearchParams({ agent_id: agentId });
+  const r = await fetch(`${BASE}/reviews/${callId}?${params}`, { method: "DELETE" });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function fetchReviews(agentId, startDate, endDate) {
+  const params = new URLSearchParams({ agent_id: agentId, start_date: startDate, end_date: endDate });
+  const r = await fetch(`${BASE}/reviews?${params}`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function fetchRelatedCalls(callId) {
+  const r = await fetch(`${BASE}/calls/${callId}/related-calls`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
 export async function fetchWiraTickets(callId) {
   const r = await fetch(`${BASE}/calls/${callId}/wira-tickets`);
   if (!r.ok) throw new Error(await r.text());
@@ -45,6 +65,16 @@ export async function submitReview(payload) {
 
 export async function fetchRubric() {
   const r = await fetch(`${BASE}/rubric`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function updateRubric(criteria) {
+  const r = await fetch(`${BASE}/rubric`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(criteria),
+  });
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }

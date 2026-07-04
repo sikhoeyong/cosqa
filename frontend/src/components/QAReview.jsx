@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { fetchAiScore, fetchTranscript, fetchWiraTickets, submitReview } from "../api";
+import { fetchAiScore, fetchTranscript, fetchWiraTickets, fetchRelatedCalls, submitReview, deleteReview } from "../api";
 import { TierBadge } from "./AgentPicker";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -66,7 +66,7 @@ function ScoreButton({ value, active, onClick, tipText }) {
           }}
         >
           <span className="font-semibold block mb-0.5">
-            {value === 1 ? "Needs improvement" : value === 2 ? "Meets standard" : "Exceeds standard"}
+            {value === 1 ? "Poor" : value === 2 ? "Acceptable" : "Excellent"}
           </span>
           {tipText}
         </div>,
@@ -76,16 +76,20 @@ function ScoreButton({ value, active, onClick, tipText }) {
   );
 }
 
-export default function QAReview({ call, agent, rubric, onClose, onSubmitted }) {
-  const [transcript, setTranscript] = useState(null);
+export default function QAReview({ call, agent, rubric, existingReview, onClose, onSubmitted }) {
+  const [transcriptEn, setTranscriptEn] = useState(null);
+  const [transcriptZh, setTranscriptZh] = useState(null);
   const [transcriptLoading, setTranscriptLoading] = useState(false);
+  const [transcriptTab, setTranscriptTab] = useState("zh");
   const [aiScores, setAiScores] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState(null);
   const [wiraTickets, setWiraTickets] = useState(null);
+  const [relatedCalls, setRelatedCalls] = useState(null);
 
   useEffect(() => {
     fetchWiraTickets(call.call_id).then(setWiraTickets).catch(() => setWiraTickets([]));
+    fetchRelatedCalls(call.call_id).then(setRelatedCalls).catch(() => setRelatedCalls([]));
   }, [call.call_id]);
 
   useEffect(() => {
@@ -94,20 +98,30 @@ export default function QAReview({ call, agent, rubric, onClose, onSubmitted }) 
   }, []);
 
   const [scores, setScores] = useState(() =>
-    Object.fromEntries(rubric.map((c) => [c.id, null]))
+    existingReview?.scores
+      ? Object.fromEntries(rubric.map((c) => [c.id, existingReview.scores[c.id] ?? null]))
+      : Object.fromEntries(rubric.map((c) => [c.id, null]))
   );
-  const [reviewer, setReviewer] = useState("");
-  const [notes, setNotes] = useState("");
+  const [reviewer, setReviewer] = useState(
+    existingReview?.reviewer ?? localStorage.getItem("qa_reviewer") ?? ""
+  );
+  const [notes, setNotes] = useState(existingReview?.notes ?? "");
   const [submitting, setSubmitting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
 
   async function loadTranscript() {
     setTranscriptLoading(true);
     try {
-      const { transcript: t } = await fetchTranscript(call.call_id);
-      setTranscript(t || "No transcript available.");
+      const { transcript_en, transcript_zh } = await fetchTranscript(call.call_id);
+      setTranscriptEn(transcript_en || "No English transcript available.");
+      setTranscriptZh(transcript_zh || "No Chinese transcript available.");
+      // default to whichever has content
+      if (!transcript_zh && transcript_en) setTranscriptTab("en");
     } catch (e) {
-      setTranscript("Failed to load transcript: " + e.message);
+      const msg = "Failed to load transcript: " + e.message;
+      setTranscriptEn(msg);
+      setTranscriptZh(msg);
     } finally {
       setTranscriptLoading(false);
     }
@@ -161,11 +175,25 @@ export default function QAReview({ call, agent, rubric, onClose, onSubmitted }) 
         ai_scores: aiScores || {},
         notes,
       });
-      onSubmitted(computeTotal(scores));
+      onSubmitted(computeTotal(scores), call.call_id);
     } catch (e) {
       setSubmitError(e.message);
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!window.confirm("Delete this review? This cannot be undone.")) return;
+    setDeleting(true);
+    setSubmitError(null);
+    try {
+      await deleteReview(call.call_id, agent.id);
+      onSubmitted(null, call.call_id);
+    } catch (e) {
+      setSubmitError(e.message);
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -218,22 +246,6 @@ export default function QAReview({ call, agent, rubric, onClose, onSubmitted }) 
                 </div>
               )}
 
-              {/* AI score button */}
-              <Button
-                type="button"
-                variant="secondary"
-                className="w-full"
-                onClick={runAiScore}
-                disabled={aiLoading}
-              >
-                {aiLoading ? "Scoring…" : "✦ Auto-score with Claude"}
-              </Button>
-              {aiScores && (
-                <p className="text-xs text-muted-foreground text-center -mt-2">
-                  AI scores applied — adjust if needed
-                </p>
-              )}
-              {aiError && <p className="text-xs text-destructive text-center">{aiError}</p>}
 
               <Separator />
 
@@ -253,10 +265,6 @@ export default function QAReview({ call, agent, rubric, onClose, onSubmitted }) 
                     >
                       <span className="flex-1 min-w-0 space-y-0.5">
                         <span className="font-medium group-hover:text-primary leading-snug block">{t.title || "—"}</span>
-                        <span className="text-muted-foreground flex gap-2 flex-wrap">
-                          {t.task_category && <span>{t.task_category}</span>}
-                          {t.task_intent && <span className="text-foreground/70">{t.task_intent}</span>}
-                        </span>
                       </span>
                       <span className={`shrink-0 mt-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold leading-none ${
                         t.status === "closed" ? "bg-green-50 text-green-700" :
@@ -268,13 +276,72 @@ export default function QAReview({ call, agent, rubric, onClose, onSubmitted }) 
                 </div>
               )}
 
+              {/* Related Calls */}
+              {relatedCalls && relatedCalls.length > 0 && (
+                <div className="space-y-1.5">
+                  <Label className="text-sm">Related Calls</Label>
+                  {relatedCalls.map((rc) => {
+                    const dur = rc.duration_seconds
+                      ? `${Math.floor(rc.duration_seconds / 60)}:${String(rc.duration_seconds % 60).padStart(2, "0")}`
+                      : null;
+                    const label = rc.type === "outbound" ? "3-way" : rc.type === "agent" ? "Agent" : rc.type === "client" ? "Client" : "Customer";
+                    const inner = (
+                      <span className="flex items-center justify-between w-full gap-2">
+                        <span className="flex items-center gap-1.5 min-w-0">
+                          <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-muted text-muted-foreground leading-none">
+                            {label}
+                          </span>
+                          <span className="text-muted-foreground truncate">{rc.call_started?.slice(11, 16)}</span>
+                        </span>
+                        {dur && <span className="text-muted-foreground shrink-0">{dur}</span>}
+                      </span>
+                    );
+                    return rc.greendot_url ? (
+                      <a
+                        key={rc.call_id}
+                        href={rc.greendot_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center rounded-md border px-2.5 py-2 text-xs hover:bg-muted/50 transition-colors"
+                      >
+                        {inner}
+                      </a>
+                    ) : (
+                      <div key={rc.call_id} className="flex items-center rounded-md border px-2.5 py-2 text-xs text-muted-foreground">
+                        {inner}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
               <Separator />
 
               {/* Transcript */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <Label className="text-sm">Transcript</Label>
-                  {!transcript && (
+                  <div className="flex items-center gap-1">
+                    <Label className="text-sm">Transcript</Label>
+                    {transcriptZh && (
+                      <div className="flex rounded-md border overflow-hidden ml-2">
+                        {[["zh", "中文"], ["en", "EN"]].map(([key, label]) => (
+                          <button
+                            key={key}
+                            type="button"
+                            onClick={() => setTranscriptTab(key)}
+                            className={`px-2 py-0.5 text-[10px] font-medium transition-colors ${
+                              transcriptTab === key
+                                ? "bg-primary text-primary-foreground"
+                                : "text-muted-foreground hover:bg-muted"
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {!transcriptZh && (
                     <Button
                       type="button"
                       variant="ghost"
@@ -287,13 +354,13 @@ export default function QAReview({ call, agent, rubric, onClose, onSubmitted }) 
                     </Button>
                   )}
                 </div>
-                {transcript ? (
+                {transcriptZh ? (
                   <div
                     className="overflow-y-auto rounded-md border bg-muted/40 p-3"
                     style={{ maxHeight: "calc(92vh - 300px)" }}
                   >
                     <pre className="text-xs whitespace-pre-wrap text-muted-foreground leading-relaxed">
-                      {transcript}
+                      {transcriptTab === "zh" ? transcriptZh : transcriptEn}
                     </pre>
                   </div>
                 ) : (
@@ -314,6 +381,14 @@ export default function QAReview({ call, agent, rubric, onClose, onSubmitted }) 
             onSubmit={handleSubmit}
             className="flex-1 overflow-y-auto px-6 py-4 space-y-5"
           >
+            {existingReview && (
+              <div className="flex items-center justify-between rounded-md border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-800">
+                <span>
+                  Reviewed by <span className="font-medium">{existingReview.reviewer}</span> on {existingReview.reviewed_at}
+                </span>
+                <span className="font-semibold tabular-nums">{existingReview.total_score?.toFixed(1)}%</span>
+              </div>
+            )}
             {SECTIONS.map((section) => {
               const criteria = rubric.filter((c) => c.section === section);
               return (
@@ -381,7 +456,10 @@ export default function QAReview({ call, agent, rubric, onClose, onSubmitted }) 
                 <Input
                   id="reviewer"
                   value={reviewer}
-                  onChange={(e) => setReviewer(e.target.value)}
+                  onChange={(e) => {
+                    setReviewer(e.target.value);
+                    localStorage.setItem("qa_reviewer", e.target.value);
+                  }}
                   placeholder="Reviewer name"
                 />
               </div>
@@ -403,13 +481,33 @@ export default function QAReview({ call, agent, rubric, onClose, onSubmitted }) 
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-2 px-6 py-4 border-t bg-muted/20 shrink-0">
+        <div className="flex items-center justify-between px-6 py-4 border-t bg-muted/20 shrink-0">
+          <div>
+            {existingReview && (
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={handleDelete}
+                disabled={deleting || submitting}
+                className="text-destructive hover:text-destructive hover:bg-destructive/10"
+              >
+                {deleting ? "Deleting…" : "Delete Review"}
+              </Button>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+          <Button type="button" variant="outline" onClick={runAiScore} disabled={aiLoading || submitting}>
+            {aiLoading ? "Scoring…" : "Auto-score with AI"}
+          </Button>
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
           </Button>
           <Button type="submit" form="qa-form" disabled={submitting || unscoredCount > 0}>
-            {submitting ? "Saving…" : `Save to Google Sheets${unscoredCount > 0 ? ` (${unscoredCount} unscored)` : ""}`}
+            {submitting ? "Saving…" : existingReview
+              ? `Update Review${unscoredCount > 0 ? ` (${unscoredCount} unscored)` : ""}`
+              : `Save Review${unscoredCount > 0 ? ` (${unscoredCount} unscored)` : ""}`}
           </Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>

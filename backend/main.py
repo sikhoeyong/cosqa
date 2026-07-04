@@ -15,7 +15,7 @@ app = FastAPI(title="COS QA Tool")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=["http://localhost:5173", "http://localhost:5174", "http://localhost:5175", "http://localhost:5176", "http://localhost:3000"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -55,6 +55,14 @@ def list_calls(agent_id: str, start_date: str, end_date: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/calls/{call_id}/related-calls")
+def get_related_calls(call_id: str):
+    try:
+        return snowflake_client.get_related_calls(call_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/calls/{call_id}/wira-tickets")
 def get_wira_tickets(call_id: str):
     try:
@@ -67,12 +75,14 @@ def get_wira_tickets(call_id: str):
 def get_transcript(call_id: str):
     try:
         rows = snowflake_client.query(f"""
-            SELECT chinese_call_transcript
+            SELECT call_transcript, chinese_call_transcript
             FROM PROD_WONDERS_LAKE.ASR.ASR_TRANSCRIPT
             WHERE call_id = '{call_id}'
             LIMIT 1
         """)
-        return {"transcript": rows[0][0] if rows else None}
+        if rows:
+            return {"transcript_en": rows[0][0], "transcript_zh": rows[0][1]}
+        return {"transcript_en": None, "transcript_zh": None}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -83,14 +93,42 @@ def get_transcript(call_id: str):
 def ai_score(call_id: str):
     try:
         rows = snowflake_client.query(f"""
-            SELECT chinese_call_transcript
-            FROM PROD_WONDERS_LAKE.ASR.ASR_TRANSCRIPT
-            WHERE call_id = '{call_id}'
+            SELECT t.chinese_call_transcript, c.call_skills_required
+            FROM PROD_WONDERS_LAKE.ASR.ASR_TRANSCRIPT t
+            JOIN PROD_WONDERS_LAKE.CALL_CENTER.CALLS c ON c.conversation_id = t.call_id
+            WHERE t.call_id = '{call_id}'
             LIMIT 1
         """)
-        transcript = rows[0][0] if rows else ""
-        result = scorer.score_transcript(transcript)
-        return result
+        transcript_zh = rows[0][0] if rows and rows[0][0] else ""
+        skills = (rows[0][1] or "") if rows else ""
+        is_chinese_assistant = "chinese_assistant" in skills
+        wira_tickets = snowflake_client.get_wira_tickets(call_id)
+        result = scorer.score_audio(
+            call_id,
+            transcript_zh=transcript_zh,
+            is_chinese_assistant=is_chinese_assistant,
+            wira_tickets=wira_tickets or None,
+        )
+        return {**result, "_source": "audio"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Reviews ───────────────────────────────────────────────────────────────────
+
+@app.get("/reviews")
+def list_reviews(agent_id: str, start_date: str, end_date: str):
+    try:
+        return snowflake_client.get_reviews(agent_id, start_date, end_date)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/reviews/{call_id}")
+def delete_review(call_id: str, agent_id: str):
+    try:
+        snowflake_client.delete_review(call_id, agent_id)
+        return {"status": "ok"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -109,6 +147,22 @@ class ReviewPayload(BaseModel):
 
 @app.post("/submit")
 def submit_review(payload: ReviewPayload):
+    total = compute_total_score(payload.scores)
+    try:
+        snowflake_client.save_review(
+            reviewer=payload.reviewer,
+            agent_name=payload.agent_name,
+            agent_id=payload.agent_id,
+            call=payload.call,
+            scores=payload.scores,
+            total_score=total,
+            notes=payload.notes,
+            ai_scores=payload.ai_scores,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Snowflake write failed: {e}")
+
+    # Sheets is best-effort; don't fail the request if it errors
     try:
         sheets.submit_review(
             reviewer=payload.reviewer,
@@ -119,14 +173,25 @@ def submit_review(payload: ReviewPayload):
             ai_scores=payload.ai_scores,
             notes=payload.notes,
         )
-        total = compute_total_score(payload.scores)
-        return {"status": "ok", "total_score": total}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        pass
+
+    return {"status": "ok", "total_score": total}
 
 
 # ── Rubric ────────────────────────────────────────────────────────────────────
 
 @app.get("/rubric")
 def get_rubric():
-    return CRITERIA
+    from rubric import _load
+    return _load()
+
+
+@app.put("/rubric")
+def put_rubric(criteria: list[dict]):
+    try:
+        from rubric import save
+        save(criteria)
+        return {"status": "ok", "count": len(criteria)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

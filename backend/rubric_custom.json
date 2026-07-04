@@ -1,0 +1,122 @@
+[
+  {
+    "id": "1a",
+    "section": "Call Handling",
+    "name": "Opening spiel",
+    "weight": 0.05,
+    "scoring_notes": "Two call types:\nCLIENT CALL: Score 3 = restaurant name + agent introduces with any name (\u6211\u662f[any name]). Score 2 = restaurant name but no self-intro. Score 1 = no greeting or wrong restaurant. '\u6211\u662f' audible in audio = credit the intro even if name is garbled.\nCHINESE ASSISTANT CALL: Score 3 = (a) English greeting to dispatcher present, AND (b) Mandarin greeting to owner contains '\u8001\u677f\u4f60\u597d/\u8001\u677f\u5a18\u4f60\u597d' AND the \u98df\u5ba2\u901a brand name. Score 2 = only one of the two greeting moments present, or greeting present but \u98df\u5ba2\u901a missing. Score 1 = neither present.\nIMPORTANT \u2014 \u98df\u5ba2\u901a pronunciation: In audio recordings, \u98df\u5ba2\u901a (Sh\u00ed K\u00e8 T\u014dng) is frequently mispronounced or garbled. Accept ANY phonetically plausible attempt: \u5341\u4e2a\u901a, \u5341\u5ba2\u901a, \u98df\u53ef\u901a, \u5b9e\u5ba2\u901a, \u5341\u4e2a\u901a\u8bdd, or any 3-syllable phrase in the greeting position that sounds like Sh\u00ed K\u00e8 T\u014dng. If the agent says '\u8001\u677f\u5a18\u4f60\u597d\uff0c\u8fd9\u662f[anything]', the [anything] should be credited as \u98df\u5ba2\u901a unless it is clearly a different phrase entirely.",
+    "score_1": "No greeting at all, or wrong company/restaurant identified in either part of the call",
+    "score_2": "Partial greeting \u2014 one part present but the other missing or incorrect",
+    "score_3": "Correct opening for call type: (1) Client call: '[Restaurant Name]\u8001\u677f\u60a8\u597d\uff0c\u6211\u662f[any name]' \u2014 restaurant name + agent self-introduction; (2) Chinese assistant call: English greeting to dispatcher ('Hi how can I help you?') AND Mandarin greeting to owner with '\u8001\u677f\u4f60\u597d/\u8001\u677f\u5a18\u4f60\u597d' + \u98df\u5ba2\u901a brand name"
+  },
+  {
+    "id": "1b",
+    "section": "Call Handling",
+    "name": "Tone, no jargon & dead air",
+    "weight": 0.05,
+    "scoring_notes": "Flag unmanaged dead air (>5 sec silence with no verbal update). Jargon includes internal system names or acronyms said to the client. Minor filler words (um, ah) are acceptable.",
+    "score_1": "Abrupt, dismissive, heavy jargon, or long unmanaged silences",
+    "score_2": "Mostly professional; minor jargon or brief dead air",
+    "score_3": "Warm, composed, plain language; silence managed with verbal updates"
+  },
+  {
+    "id": "1c",
+    "section": "Call Handling",
+    "name": "Empathy & composure",
+    "weight": 0.05,
+    "scoring_notes": "If no escalation or complaint moment occurred, default to 3. Only penalise if the agent was visibly defensive, dismissive, or failed to acknowledge the client's frustration.",
+    "score_1": "Defensive or dismissive on a difficult call",
+    "score_2": "Attempted empathy but inconsistent",
+    "score_3": "Consistent empathy; de-escalated naturally. Mark 3 if no difficult moment arose."
+  },
+  {
+    "id": "1d",
+    "section": "Call Handling",
+    "name": "Mandarin proficiency",
+    "weight": 0.05,
+    "scoring_notes": "For CHINESE ASSISTANT CALLS: The call alternates between English (with dispatcher) and Mandarin (with restaurant owner/client). Only assess Mandarin proficiency for the segments where the agent is speaking Mandarin TO the client. The English dispatcher segments should be completely ignored for this criterion \u2014 they are expected and correct. If the entire call is in English (English-speaking client), mark 3 automatically. The ONLY accepted English loanwords in Mandarin speech are: APP, OK, lunch, combo, menu, hi, bye, hello. Any other English \u2014 self delivery, driver, third-party, dish names in English \u2014 scores 2.",
+    "score_1": "Primarily English or significant language mismatch in the Mandarin-client portion",
+    "score_2": "Any English beyond the accepted list (APP, OK, lunch, combo, menu, hi, bye, hello) used while speaking with a Mandarin client",
+    "score_3": "Full Mandarin throughout client-facing portions; only accepted loanwords used (APP, OK, lunch, combo, menu, hi, bye, hello). For Chinese assistant calls, score only the Mandarin outbound-to-owner segment \u2014 the English dispatcher segments are expected and not penalised."
+  },
+  {
+    "id": "2a",
+    "section": "Problem Solving",
+    "name": "Listening & concise questioning",
+    "weight": 0.1,
+    "scoring_notes": "Penalise if the agent asked the same question twice, or proceeded to a solution before confirming key details (restaurant ID, order number, customer name).",
+    "score_1": "Proceeded without basic info OR excessive re-probing",
+    "score_2": "Got key facts; some unnecessary questions or missed follow-ups",
+    "score_3": "All relevant info gathered efficiently; no redundant questions"
+  },
+  {
+    "id": "2b",
+    "section": "Problem Solving",
+    "name": "Root cause triage",
+    "weight": 0.1,
+    "scoring_notes": "Penalise wrong triage even if the call happened to resolve correctly. A lucky resolution after wrong diagnosis is still a score of 2.",
+    "score_1": "Wrong diagnosis; resolved the wrong issue entirely",
+    "score_2": "Identified the issue but misread the root cause",
+    "score_3": "Accurate root cause; correct solution path chosen"
+  },
+  {
+    "id": "2c",
+    "section": "Problem Solving",
+    "name": "Knowledge application",
+    "weight": 0.1,
+    "scoring_notes": "Note whether the knowledge gap was product (menu, pricing) or process (escalation path, SLA). Score 1 only for clear misunderstanding, not for edge cases.",
+    "score_1": "Clear product or process misunderstanding",
+    "score_2": "General knowledge; gaps on edge cases or procedures",
+    "score_3": "Confident, accurate product and process application"
+  },
+  {
+    "id": "2d",
+    "section": "Problem Solving",
+    "name": "Correct resolution / escalation",
+    "weight": 0.15,
+    "scoring_notes": "A correct resolution with no timeline given = score 2. Escalation is acceptable if the reason and expected timeline are communicated clearly.",
+    "score_1": "Wrong resolution given OR escalated unnecessarily",
+    "score_2": "Correct decision but vague timeline or incomplete execution",
+    "score_3": "Resolved correctly OR escalated with clear reason and timeline"
+  },
+  {
+    "id": "2e",
+    "section": "Problem Solving",
+    "name": "Ticket documentation",
+    "weight": 0.05,
+    "scoring_notes": "WIRA ticket data is provided alongside the call for automated scoring. If tickets exist: score 3 = agent clearly documented intent/actions matching the ticket(s); score 2 = ticket exists but intent type or actions seem incomplete; score 1 = ticket exists but agent clearly failed to document. If NO ticket data is available and ticket actions were not mentioned in the recording: set score to null \u2014 cannot assess.",
+    "score_1": "No ticket created OR completely wrong intent type",
+    "score_2": "Ticket created; minor intent or sub-intent error",
+    "score_3": "Correct intent, sub-intent, and clear case notes"
+  },
+  {
+    "id": "3a",
+    "section": "Ownership & Coaching",
+    "name": "Ownership",
+    "weight": 0.1,
+    "scoring_notes": "Score 1 only if the agent transferred or ended the call without attempting any resolution. Borderline escalations with partial effort = 2.",
+    "score_1": "Passed to another team without attempting resolution",
+    "score_2": "Attempted resolution; escalated but borderline necessary",
+    "score_3": "Resolved independently OR escalated only where truly required"
+  },
+  {
+    "id": "3b",
+    "section": "Ownership & Coaching",
+    "name": "CMA self-serve coaching",
+    "weight": 0.15,
+    "scoring_notes": "Self-serve coaching is applicable whenever the issue could be resolved by the restaurant owner in CMA next time (menu edits, hours, settings). If not applicable, mark 3.",
+    "score_1": "Missed opportunity entirely \u2014 no CMA mention on an applicable call",
+    "score_2": "Mentioned CMA self-serve but did not walk client through steps",
+    "score_3": "Proactively coached client through specific CMA steps; confirmed they can self-serve next time"
+  },
+  {
+    "id": "3c",
+    "section": "Ownership & Coaching",
+    "name": "Clear close & confirmed understanding",
+    "weight": 0.05,
+    "scoring_notes": "A clear close requires: summary of what was resolved, and confirmation the client understands next steps. Missing either = score 2.",
+    "score_1": "Abrupt end; client unclear on resolution or next steps",
+    "score_2": "Adequate close but no confirmation of client understanding",
+    "score_3": "Clear resolution summary; confirmed client understanding before closing"
+  }
+]
