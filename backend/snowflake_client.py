@@ -474,3 +474,186 @@ def get_calls(operator_id: str, start_date: str, end_date: str) -> list[dict]:
         }
         for r in rows
     ]
+
+
+def get_conversation_agents(start_date: str, end_date: str) -> list:
+    """Agents who participated in conversations in the date range."""
+    rows = query(f"""
+        SELECT
+            e.commenter_alias AS alias,
+            COUNT(DISTINCT e.task_id) AS convo_count
+        FROM (
+            SELECT
+                r.wid AS task_id,
+                PARSE_JSON(ev.payload):payload_append_comment:commenter_alias::STRING AS commenter_alias
+            FROM PROD_WONDERS_LAKE.WONDERSDB_SOURCES.WIRA_TASK_ROOT r
+            JOIN PROD_WONDERS_LAKE.WONDERSDB_SOURCES.WIRA_TASK_EVENT ev
+                ON ev.owner_wid = r.wid
+            WHERE r.task_type = '{{"kind":"conversation"}}'
+              AND PARSE_JSON(ev.payload):kind::STRING = 'append_comment'
+              AND DATE(TO_TIMESTAMP(r.create_time)) BETWEEN '{_esc(start_date)}' AND '{_esc(end_date)}'
+        ) e
+        WHERE e.commenter_alias IS NOT NULL
+          AND e.commenter_alias != ''
+          AND e.commenter_alias NOT LIKE 'client-%'
+          AND e.commenter_alias NOT LIKE 'internal-client-view-%'
+          AND e.commenter_alias NOT LIKE 'cma-pin-user-%'
+          AND e.commenter_alias LIKE '%@%'
+        GROUP BY e.commenter_alias
+        ORDER BY e.commenter_alias
+    """)
+
+    def _display_name(alias: str) -> str:
+        if "@" in alias:
+            prefix = alias.split("@")[0]
+            return " ".join(part.capitalize() for part in prefix.replace(".", " ").split())
+        return alias  # already a display name
+
+    return [
+        {
+            "email": r[0],
+            "display_name": _display_name(r[0]),
+            "convo_count": int(r[1]) if r[1] else 0,
+        }
+        for r in rows
+    ]
+
+
+def get_conversations(agent_email: str, start_date: str, end_date: str) -> list:
+    """List conversations handled by this agent in the date range."""
+    rows = query(f"""
+        SELECT
+            r.wid AS convo_id,
+            r.title AS title,
+            TO_CHAR(TO_TIMESTAMP(r.create_time), 'YYYY-MM-DD HH24:MI:SS') AS created_at,
+            r.status AS status,
+            COUNT(ev.wid) AS message_count
+        FROM PROD_WONDERS_LAKE.WONDERSDB_SOURCES.WIRA_TASK_ROOT r
+        JOIN PROD_WONDERS_LAKE.WONDERSDB_SOURCES.WIRA_TASK_EVENT ev
+            ON ev.owner_wid = r.wid
+            AND PARSE_JSON(ev.payload):kind::STRING = 'append_comment'
+        WHERE r.task_type = '{{"kind":"conversation"}}'
+          AND DATE(TO_TIMESTAMP(r.create_time)) BETWEEN '{_esc(start_date)}' AND '{_esc(end_date)}'
+          AND r.wid IN (
+              SELECT DISTINCT owner_wid
+              FROM PROD_WONDERS_LAKE.WONDERSDB_SOURCES.WIRA_TASK_EVENT
+              WHERE PARSE_JSON(payload):kind::STRING = 'append_comment'
+                AND PARSE_JSON(payload):payload_append_comment:commenter_alias::STRING = '{_esc(agent_email)}'
+          )
+        GROUP BY r.wid, r.title, r.create_time, r.status
+        ORDER BY r.create_time DESC
+    """)
+    import json as _json
+
+    def _status(raw):
+        try:
+            return _json.loads(raw or "").get("kind", raw)
+        except Exception:
+            return raw
+
+    return [
+        {
+            "convo_id": r[0],
+            "title": r[1],
+            "created_at": r[2],
+            "status": _status(r[3]),
+            "message_count": int(r[4]) if r[4] else 0,
+        }
+        for r in rows
+    ]
+
+
+def get_conversation_thread(convo_id: str) -> list:
+    """All messages in a conversation, ordered chronologically."""
+    rows = query(f"""
+        SELECT
+            PARSE_JSON(payload):payload_append_comment:commenter_alias::STRING AS alias,
+            PARSE_JSON(payload):payload_append_comment:contents::STRING AS content,
+            TO_CHAR(TO_TIMESTAMP(create_time), 'YYYY-MM-DD HH24:MI:SS') AS ts
+        FROM PROD_WONDERS_LAKE.WONDERSDB_SOURCES.WIRA_TASK_EVENT
+        WHERE owner_wid = '{_esc(convo_id)}'
+          AND PARSE_JSON(payload):kind::STRING = 'append_comment'
+        ORDER BY create_time ASC
+    """)
+    return [
+        {
+            "alias": r[0],
+            "is_agent": not (r[0] or "").startswith("client-"),
+            "content": r[1],
+            "timestamp": r[2],
+        }
+        for r in rows
+    ]
+
+
+def get_call_by_id(call_id: str):
+    rows = query(f"""
+        SELECT
+            c.conversation_id,
+            TO_CHAR(c.call_started_at_est, 'YYYY-MM-DD HH24:MI:SS') AS call_started,
+            c.call_duration_in_seconds,
+            COALESCE(
+                c.greendot_call_url,
+                CASE
+                    WHEN r.unique_code IS NOT NULL
+                    THEN 'https://greendot.prod.letsdowonders.io/greendot/restaurant/'
+                         || r.unique_code
+                         || '?callId=' || c.conversation_id
+                         || '&panel=call_recordings'
+                    ELSE 'https://greendot.prod.letsdowonders.io/greendot/callrecordings?callIds='
+                         || c.conversation_id
+                END
+            ) AS greendot_url,
+            c.is_order_converted_call,
+            c.call_skills_required,
+            COALESCE(c.call_time_in_seconds, 0),
+            COALESCE(c.call_wait_in_seconds, 0),
+            COALESCE(c.wrap_up_time_in_seconds, 0),
+            t.chinese_call_transcript,
+            t.cortex_sentiment_score,
+            c.operator_id,
+            u.full_name AS agent_name,
+            u.position_name,
+            u.team_description
+        FROM PROD_WONDERS_LAKE.CALL_CENTER.CALLS c
+        LEFT JOIN PROD_WONDERS_LAKE.CORE.RESTAURANTS r ON r.id = c.restaurant_id
+        LEFT JOIN PROD_WONDERS_LAKE.ASR.ASR_TRANSCRIPT t ON c.conversation_id = t.call_id
+        LEFT JOIN PROD_WONDERS_LAKE.INTERMEDIATE.INT_CALL_CENTER__INTERNAL_USERS_UNIFIED u ON u.id = c.operator_id
+        WHERE c.conversation_id = '{_esc(call_id)}'
+        LIMIT 1
+    """)
+    if not rows:
+        return None
+    r = rows[0]
+
+    def _tier(position_name: str) -> str:
+        p = (position_name or "").upper()
+        if "TIER III" in p or "TIER 3" in p: return "III"
+        if "TIER II" in p or "TIER 2" in p: return "II"
+        if "TIER I" in p or "TIER 1" in p: return "I"
+        return "—"
+
+    return {
+        "call": {
+            "call_id": r[0],
+            "call_started": r[1],
+            "duration_seconds": r[2],
+            "greendot_url": r[3],
+            "is_order_converted": r[4],
+            "skills_required": r[5],
+            "att_seconds": int(float(r[6])) if r[6] else 0,
+            "awt_seconds": int(float(r[7])) if r[7] else 0,
+            "acw_seconds": int(float(r[8])) if r[8] else 0,
+            "transcript": r[9],
+            "sentiment_score": r[10],
+            "wira_tickets": [],
+            "related_calls": [],
+        },
+        "agent": {
+            "id": r[11],
+            "full_name": r[12] or "Unknown",
+            "position_name": r[13],
+            "team_description": r[14],
+            "tier": _tier(r[13]),
+        },
+    }

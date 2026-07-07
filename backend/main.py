@@ -9,6 +9,7 @@ from pydantic import BaseModel
 import snowflake_client
 import scorer
 import sheets
+import slack_client
 from rubric import CRITERIA, compute_total_score
 
 app = FastAPI(title="COS QA Tool")
@@ -51,6 +52,22 @@ def list_calls(agent_id: str, start_date: str, end_date: str):
             last_call_date = rows[0][0] if rows and rows[0][0] else None
 
         return {"calls": calls, "last_call_date": last_call_date}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/calls/{call_id}")
+def get_call(call_id: str):
+    try:
+        result = snowflake_client.get_call_by_id(call_id)
+        if not result:
+            raise HTTPException(status_code=404, detail="Call not found")
+        call = result["call"]
+        call["has_transcript"] = bool(call.get("transcript"))
+        call.pop("transcript", None)
+        return result
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -177,6 +194,61 @@ def submit_review(payload: ReviewPayload):
         pass
 
     return {"status": "ok", "total_score": total}
+
+
+# ── Chat QA ───────────────────────────────────────────────────────────────────
+
+@app.get("/chat/agents")
+def list_chat_agents(start_date: str, end_date: str):
+    try:
+        return snowflake_client.get_conversation_agents(start_date, end_date)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/chat/conversations")
+def list_conversations(agent_email: str, start_date: str, end_date: str):
+    try:
+        return snowflake_client.get_conversations(agent_email, start_date, end_date)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/chat/conversations/{convo_id:path}/thread")
+def get_thread(convo_id: str):
+    try:
+        return snowflake_client.get_conversation_thread(convo_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/chat/rubric")
+def get_chat_rubric():
+    from chat_rubric import CHAT_CRITERIA
+    return CHAT_CRITERIA
+
+
+class ChatFeedbackPayload(BaseModel):
+    reviewer: str
+    agent_email: str
+    convo_title: str = ""
+    convo_id: str
+    feedback: str
+
+
+@app.post("/chat/feedback")
+def post_chat_feedback(payload: ChatFeedbackPayload):
+    try:
+        slack_client.post_chat_feedback(
+            reviewer=payload.reviewer,
+            agent_email=payload.agent_email,
+            convo_title=payload.convo_title,
+            convo_id=payload.convo_id,
+            feedback=payload.feedback,
+        )
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ── Rubric ────────────────────────────────────────────────────────────────────

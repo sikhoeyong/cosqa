@@ -7,6 +7,12 @@ export async function fetchAgents(startDate, endDate) {
   return r.json();
 }
 
+export async function fetchCallById(callId) {
+  const r = await fetch(`${BASE}/calls/${callId}`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json(); // { call, agent }
+}
+
 export async function fetchCalls(agentId, startDate, endDate) {
   const params = new URLSearchParams({ agent_id: agentId, start_date: startDate, end_date: endDate });
   const r = await fetch(`${BASE}/calls?${params}`);
@@ -65,6 +71,42 @@ export async function submitReview(payload) {
 
 export async function fetchRubric() {
   const r = await fetch(`${BASE}/rubric`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function fetchConversationAgents(startDate, endDate) {
+  const params = new URLSearchParams({ start_date: startDate, end_date: endDate });
+  const r = await fetch(`${BASE}/chat/agents?${params}`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function fetchConversations(agentEmail, startDate, endDate) {
+  const params = new URLSearchParams({ agent_email: agentEmail, start_date: startDate, end_date: endDate });
+  const r = await fetch(`${BASE}/chat/conversations?${params}`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function fetchConversationThread(convoId) {
+  const r = await fetch(`${BASE}/chat/conversations/${encodeURIComponent(convoId)}/thread`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function submitChatFeedback(payload) {
+  const r = await fetch(`${BASE}/chat/feedback`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function fetchChatRubric() {
+  const r = await fetch(`${BASE}/chat/rubric`);
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
